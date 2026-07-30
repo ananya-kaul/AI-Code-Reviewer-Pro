@@ -49,7 +49,7 @@ Provider-agnostic: run it on **Groq, Google Gemini, or OpenRouter for free**
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/brisinger23/AI-Code-Reviewer-Pro.git
+git clone https://github.com/ananya-kaul/AI-Code-Reviewer-Pro.git
 cd AI-Code-Reviewer-Pro
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -140,7 +140,7 @@ AI-Code-Reviewer-Pro/
 This repo ships a [`render.yaml`](render.yaml) Blueprint.
 
 1. Go to **https://dashboard.render.com/blueprints** → **New Blueprint Instance**.
-2. Connect this GitHub repo (`brisinger23/AI-Code-Reviewer-Pro`).
+2. Connect this GitHub repo (`ananya-kaul/AI-Code-Reviewer-Pro`).
 3. Render reads `render.yaml` and provisions a free web service.
 4. In the service's **Environment**, set `OPENAI_API_KEY` to your key and click
    **Save** (this triggers a deploy). `OPENAI_MODEL` defaults to `gpt-4o-mini`.
