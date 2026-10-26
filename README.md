@@ -153,8 +153,9 @@ This repo ships a [`render.yaml`](render.yaml) Blueprint.
 1. Go to **https://dashboard.render.com/blueprints** → **New Blueprint Instance**.
 2. Connect this GitHub repo (`ananya-kaul/AI-Code-Reviewer-Pro`).
 3. Render reads `render.yaml` and provisions a free web service.
-4. In the service's **Environment**, set `OPENAI_API_KEY` to your key and click
-   **Save** (this triggers a deploy). `OPENAI_MODEL` defaults to `gpt-4o-mini`.
+4. In the service's **Environment**, optionally set one provider key such as
+   `GROQ_API_KEY` to enable full AI reviews. Without a key, the local static
+   checks remain available.
 
 > The free plan sleeps after inactivity and cold-starts on the next visit.
 
