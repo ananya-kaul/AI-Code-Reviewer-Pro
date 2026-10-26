@@ -29,6 +29,10 @@ Provider-agnostic: run it on **Groq, Google Gemini, or OpenRouter for free**
 - **Session history:** reopen any of the last 20 reviews, including its code and report.
 - **Safer review flow:** empty and oversized inputs are caught before an API call, and every download gets a unique filename.
 - **Sample snippet** to explore the app without supplying your own code.
+- **Works without an API key:** local static checks flag selected Python syntax,
+  mutable defaults, recursion, bare exception handlers, and dynamic execution;
+  JavaScript/TypeScript `eval` and SQL `SELECT *` are also flagged. The local
+  scan is limited and does not assign an AI score or generate a rewrite.
 - **Syntax-highlighted code editor** that adapts to the selected language.
 - **15 languages:** Swift, Dart, Python, JavaScript, TypeScript, Java, Kotlin,
   Go, Rust, C#, C++, PHP, Ruby, SQL, HTML/CSS.
@@ -58,10 +62,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure a provider key (free options available)
+### 2. Configure a provider key for a full AI review (optional)
 
-The app is **provider-agnostic** and auto-detects which LLM to use from whichever
-API key is present. You only need **one**:
+The app starts without a key and runs limited static checks locally. For a full
+AI review, it auto-detects which provider to use from whichever API key is
+present. You only need **one**:
 
 | Provider | Cost | Get a key |
 | --- | --- | --- |
@@ -104,7 +109,7 @@ Open the printed local URL (default `http://localhost:7860`).
 | `GRADIO_SERVER_NAME`  | `0.0.0.0`          | Host interface to bind.                         |
 | `GRADIO_SERVER_PORT`  | `7860`             | Port to serve on.                               |
 
-> Set **one** provider key. Auto-detection order: Groq → Gemini → OpenRouter → OpenAI.
+> For AI reviews, set **one** provider key. Auto-detection order: Groq → Gemini → OpenRouter → OpenAI.
 
 ---
 
@@ -128,9 +133,9 @@ AI-Code-Reviewer-Pro/
 
 1. `prompts.py` builds a strict system + user prompt, including a JSON schema
    the model must satisfy and a mode-specific review lens.
-2. `reviewer.py` calls the active provider's OpenAI-compatible API, extracts the JSON, and
-   normalizes it so every field is always present. It also computes lightweight,
-   dependency-free static metrics locally.
+2. `reviewer.py` calls the active provider's OpenAI-compatible API when a key is
+   available, or runs limited static checks locally. Provider responses are
+   normalized so every expected field is present. Static metrics are computed locally.
 3. `app.py` renders the structured result into a tabbed, light UI and a
    downloadable Markdown report.
 

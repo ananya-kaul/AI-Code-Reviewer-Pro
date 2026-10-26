@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import html
+import textwrap
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -34,7 +35,6 @@ from utils import (
 
 APP_DIR = Path(__file__).parent
 THEME_CSS = (APP_DIR / "theme.css").read_text(encoding="utf-8")
-MICRO_JS = (APP_DIR / "assets" / "interactions.js").read_text(encoding="utf-8")
 REPORTS_DIR = APP_DIR / "assets" / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -48,43 +48,26 @@ result = fibonacci(35)
 print(result)
 """
 
-# Injected once into <head>; fonts, icon set, and micro-interaction script.
+# Injected once into <head>; fonts and light color scheme.
 HEAD_HTML = (
+    '<meta name="color-scheme" content="light">'
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
     '<link href="https://fonts.googleapis.com/css2?'
-    "family=Inter:wght@400;500;600;700;900&"
-    "family=JetBrains+Mono:wght@400;500;700&"
-    'family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" '
+    "family=Inter:wght@400;500;600;700;800&"
+    'family=JetBrains+Mono:wght@400;500;700&display=swap" '
     'rel="stylesheet">'
-    f"<script>{MICRO_JS}</script>"
+    '<style>@media(max-width:620px){.gradio-container{padding:0 16px 25px!important}'
+    '.gradio-container main.fillable{padding:0!important}}</style>'
 )
 
 
-def _icon(name: str, cls: str = "") -> str:
-    """Render a Material Symbols icon span."""
-    return f"<span class='material-symbols-outlined {cls}'>{name}</span>"
-
-
-BRAND_HTML = f"""
-<div class="topnav__brand">
-  <div class="topnav__logo">{_icon('terminal')}</div>
-  <span class="topnav__name">AI Code Reviewer Pro</span>
-</div>
-"""
-
-NAV_RIGHT_HTML = f"""
-<div class="topnav__right">
-  <div class="live-pill"><span class="live-dot"></span> Ready for review</div>
-</div>
-"""
-
-FOOTER_HTML = """
-<footer class="site-footer">
-  <div class="site-footer__left">
-    <p class="site-footer__copy">AI Code Reviewer Pro · Review code with a clear next step.</p>
-  </div>
-</footer>
+BRAND_HTML = """
+<header class="app-header">
+  <div class="brand-mark" aria-hidden="true">{ }</div>
+  <div class="brand-copy"><strong>Code Reviewer</strong><span>AI assisted code analysis</span></div>
+  <div class="header-status"><span class="status-dot"></span> Ready to review</div>
+</header>
 """
 
 
@@ -93,7 +76,7 @@ def render_history(items: list[dict]) -> str:
     if not items:
         return (
             "<div class='hist-empty'>"
-            f"{_icon('history', 'hist-empty__icon')}"
+            "<span class='hist-empty__icon' aria-hidden='true'>↺</span>"
             "<div class='hist-empty__title'>No reviews yet</div>"
             "<div class='hist-empty__sub'>Runs from this session will appear here.</div>"
             "</div>"
@@ -133,23 +116,21 @@ def render_history(items: list[dict]) -> str:
 
 # Placeholder shown in every results panel before the first review.
 _IDLE = (
-    "<div class='idle-hint'><span class='idle-dot'></span> Awaiting review — "
-    "run a review to populate this panel.</div>"
+    "<p class='empty-note'>Run a review to see this section.</p>"
 )
 
 
-def score_card(value) -> str:
-    """Render the overall score as a circular gauge card."""
+def score_card(value, empty_label: str = "No review yet") -> str:
+    """Render a compact score card that works beside the summary."""
     try:
         v = float(value)
     except (TypeError, ValueError):
         v = None
 
     if v is None:
-        pct, num, verdict, vclass = 0.0, "—", "Awaiting review", "muted"
+        num, verdict, vclass = "—", empty_label, "muted"
     else:
         v = max(0.0, min(10.0, v))
-        pct = v / 10 * 100
         num = f"{v:.1f}"
         if v >= 8.5:
             verdict, vclass = "Excellent", "exc"
@@ -163,15 +144,10 @@ def score_card(value) -> str:
             verdict, vclass = "Poor", "poor"
 
     return (
-        "<div class='score-hero'>"
-        "<div class='score-cap'>Overall score</div>"
-        f"<div class='score-ring score-ring--{vclass}' style='--pct:{pct:.1f}%' "
-        f"data-score='{num}'>"
-        "<div class='score-ring__inner'>"
-        f"<span class='score-num'>{num}</span>"
-        "<span class='score-den'>/ 10</span>"
-        "</div></div>"
-        f"<div class='score-verdict score-verdict--{vclass}'>{verdict}</div>"
+        "<div class='score-card'>"
+        "<div class='metric-label'>OVERALL SCORE</div>"
+        f"<div class='metric-value'>{num}<span>/10</span></div>"
+        f"<div class='metric-verdict metric-verdict--{vclass}'>{verdict}</div>"
         "</div>"
     )
 
@@ -186,7 +162,7 @@ SCORE_PLACEHOLDER = score_card(None)
 def _findings_markdown(items: list[dict], impact_key: str = "severity") -> str:
     """Render a list of findings as compact Markdown for a results panel."""
     if not items:
-        return "<div class='ok-card'>✅ <strong>No issues found in this category.</strong></div>"
+        return "<div class='ok-card'>✅ <strong>No issues detected in this category.</strong></div>"
     blocks = []
     for i, it in enumerate(items, 1):
         level = it.get(impact_key) or it.get("impact") or it.get("severity") or "n/a"
@@ -220,7 +196,7 @@ def _architecture_markdown(arch: dict) -> str:
 
 def _best_practices_markdown(items: list[dict]) -> str:
     if not items:
-        return "<div class='ok-card'>✅ <strong>Code already follows the key best practices.</strong></div>"
+        return "<div class='ok-card'>✅ <strong>No additional suggestions from this review.</strong></div>"
     return "\n\n---\n\n".join(
         f"### {i}. {it.get('title', '')}\n{it.get('detail', '')}"
         for i, it in enumerate(items, 1)
@@ -234,7 +210,7 @@ def _complexity_markdown(complexity: dict, metrics: dict) -> str:
         f"| Rating | **{complexity.get('rating', '—')}** |\n"
         f"| Time complexity | `{complexity.get('estimated_time_complexity', '—')}` |\n"
         f"| Space complexity | `{complexity.get('estimated_space_complexity', '—')}` |\n"
-        f"| Cyclomatic (model) | {complexity.get('cyclomatic_estimate', '—')} |\n"
+        f"| Cyclomatic estimate | {complexity.get('cyclomatic_estimate', '—')} |\n"
         f"| Cyclomatic (static) | {metrics.get('cyclomatic_proxy', '—')} |\n"
         f"| Total lines | {metrics.get('total_lines', 0)} |\n"
         f"| Code lines | {metrics.get('code_lines', 0)} |\n"
@@ -284,7 +260,7 @@ def _idle_outputs():
     """Reset the result area when the source changes or is cleared."""
     return (
         SCORE_PLACEHOLDER,
-        "<div class='idle-hint'>Add code and run a review to see your summary.</div>",
+        "### Summary\n\nRun a review to see the key takeaways.",
         *([_IDLE] * 6),
         gr.update(value="", visible=False),
         "_Your report will appear here after a review._",
@@ -297,12 +273,13 @@ def _result_outputs(data: dict, metrics: dict, provider: str, model: str,
     refactored = data.get("refactored_code", "")
     engine = ""
     if provider:
+        model_tag = f" · <code>{html.escape(model)}</code>" if model else ""
         engine = (
             f"<div class='engine-tag'>Reviewed with <strong>{html.escape(provider)}</strong>"
-            f" · <code>{html.escape(model)}</code></div>\n\n"
+            f"{model_tag}</div>\n\n"
         )
     return (
-        score_card(data.get("overall_score")),
+        score_card(data.get("overall_score"), "AI score unavailable"),
         f"{engine}### Review summary\n\n{data.get('summary', '') or '_No summary provided._'}",
         _findings_markdown(data.get("bugs", []), "severity"),
         _findings_markdown(data.get("security_issues", []), "severity"),
@@ -368,7 +345,7 @@ def run_review(
 
     data = result.data
     metrics = result.metrics
-    report_md = render_markdown_report(data, language, mode, metrics)
+    report_md = render_markdown_report(data, language, mode, metrics, result.provider)
 
     # Persist the report so it can be downloaded.
     safe_lang = language.replace("/", "-").replace(" ", "_")
@@ -383,7 +360,7 @@ def run_review(
             "language": language,
             "mode": mode,
             "score": data.get("overall_score"),
-            "summary": (data.get("summary") or "")[:180],
+            "summary": textwrap.shorten(data.get("summary") or "", width=140, placeholder="…"),
             "provider": result.provider or "—",
             "model": result.model,
             "code": code,
@@ -409,7 +386,7 @@ def restore_review(review_id: str, history: list[dict] | None):
     item = next((it for it in history or [] if it.get("id") == review_id), None)
     if not item:
         return (*_idle_outputs(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=True), gr.update(visible=False))
+                gr.update(selected="review"))
     return (
         *_result_outputs(item["data"], item["metrics"], item["provider"],
                          item["model"], item["language"], item["mode"],
@@ -417,8 +394,7 @@ def restore_review(review_id: str, history: list[dict] | None):
         gr.update(value=item["code"], language=code_language_token(item["language"])),
         gr.update(value=item["language"]),
         gr.update(value=item["mode"]),
-        gr.update(visible=True),
-        gr.update(visible=False),
+        gr.update(selected="review"),
     )
 
 
@@ -467,186 +443,143 @@ def build_app() -> gr.Blocks:
     with gr.Blocks(
         title="AI Code Reviewer Pro",
         theme=gr.themes.Base(
-            primary_hue=gr.themes.colors.blue,
+            primary_hue=gr.themes.colors.indigo,
             neutral_hue=gr.themes.colors.gray,
         ),
         css=THEME_CSS,
         head=HEAD_HTML,
-        fill_height=True,
     ) as demo:
         history_state = gr.State([])
+        gr.HTML(BRAND_HTML, elem_classes="header-shell")
 
-        # Top navigation bar (brand · clickable nav · status cluster).
-        with gr.Row(elem_classes="topnav", equal_height=True):
-            gr.HTML(BRAND_HTML)
-            with gr.Row(elem_classes="topnav__links"):
-                nav_dashboard = gr.Button(
-                    "Dashboard", elem_classes="topnav__link is-active"
+        with gr.Tabs(selected="review", elem_classes="primary-tabs") as main_tabs:
+            with gr.Tab("Review workspace", id="review"):
+                gr.HTML(
+                    "<div class='page-intro'>"
+                    "<div><span class='eyebrow'>AI CODE REVIEWER PRO</span>"
+                    "<h1>Review code with confidence.</h1>"
+                    "<p>Find issues, understand tradeoffs, and leave with a clearer implementation.</p></div>"
+                    "<span class='intro-step'>01 / 02 &nbsp; ADD CODE</span>"
+                    "</div>",
+                    elem_classes="intro-shell",
                 )
-                nav_history = gr.Button("History", elem_classes="topnav__link")
-            gr.HTML(NAV_RIGHT_HTML)
 
-      # ================= HISTORY VIEW =================
-        with gr.Column(visible=False, elem_classes="view-history") as history_col:
-            gr.HTML(
-                "<div class='view-head'>"
-                f"{_icon('history', 'view-head__icon')}"
-                "<div><div class='view-head__title'>Review History</div>"
-                "<div class='view-head__sub'>Every review you run this session</div>"
-                "</div></div>"
-            )
-            history_picker = gr.Dropdown(
-                choices=[], label="Choose a review to reopen", interactive=True,
-                elem_classes="history-picker",
-            )
-            reopen_btn = gr.Button("Open selected review", variant="primary", elem_classes="reopen-btn", interactive=False)
-            history_view = gr.HTML(render_history([]))
-
-      # ================= DASHBOARD VIEW =================
-        dashboard_col = gr.Column(visible=True, elem_classes="view-dashboard")
-        with dashboard_col:
-          gr.HTML(
-              "<section class='hero'><div class='hero-kicker'>YOUR CODE, CLEARER</div>"
-              "<h1>A better review starts here.</h1>"
-              "<p>Paste a snippet, choose a focus, and turn findings into practical fixes.</p>"
-              "</section>"
-          )
-          with gr.Row(equal_height=False, elem_classes="workspace"):
-            # ============ LEFT: Code Editor ============
-            with gr.Column(scale=6, min_width=420, elem_classes="col-editor"):
-                with gr.Group(elem_classes="panel editor-card panel--in"):
-                    gr.HTML(
-                        "<div class='editor-titlebar'>"
-                        f"{_icon('code', 'editor-title__icon')}"
-                        "<span>Source code</span><span class='editor-titlebar__hint'>Paste a snippet to begin</span></div>"
-                    )
-                    with gr.Row(elem_classes="editor-toolbar", equal_height=True):
-                        language = gr.Dropdown(
-                            LANGUAGES,
-                            value="Python",
-                            label="Language",
-                            show_label=False,
-                            elem_classes="control toolbar-select",
-                            min_width=120,
-                            scale=1,
-                        )
-                        mode = gr.Dropdown(
-                            REVIEW_MODE_NAMES,
-                            value="General",
-                            label="Review mode",
-                            show_label=False,
-                            elem_classes="control toolbar-select",
-                            min_width=120,
-                            scale=1,
-                        )
-                    code = gr.Code(
-                        value="",
-                        language="python",
-                        label="Your code",
-                        lines=18,
-                        elem_classes="code-editor",
-                    )
-                    with gr.Row(elem_classes="editor-actions"):
-                        review_btn = gr.Button(
-                            "Review code",
-                            variant="primary",
-                            elem_classes="review-btn",
-                            scale=3,
-                        )
-                        sample_btn = gr.Button(
-                            "Try sample", elem_classes="ghost-btn", scale=1
-                        )
-                        clear_btn = gr.Button(
-                            "Clear", elem_classes="ghost-btn", scale=1
-                        )
-
-                with gr.Group(elem_classes="panel detect-card panel--in"):
-                    with gr.Row(elem_classes="detect-bar", equal_height=True):
+                with gr.Row(equal_height=False, elem_classes="workspace"):
+                    with gr.Column(scale=5, min_width=340, elem_classes="input-column"):
                         gr.HTML(
-                            "<div class='detect-label'>"
-                            f"{_icon('auto_fix_high', 'detect-label__icon')}"
-                            "<div><div class='detect-title'>Auto-detect language</div>"
-                            "<div class='detect-sub'>Suggest a language as you type</div>"
-                            "</div></div>"
+                            "<div class='section-heading'><span class='section-number'>01</span>"
+                            "<div><h2>Your code</h2><p>Paste a snippet and choose how to review it.</p></div></div>"
                         )
-                        autodetect = gr.Checkbox(
-                            value=True,
-                            label="",
-                            elem_classes="detect-toggle",
-                            container=False,
-                            scale=0,
-                            min_width=60,
+                        with gr.Column(elem_classes="surface editor-surface"):
+                            with gr.Row(elem_classes="settings-row"):
+                                language = gr.Dropdown(
+                                    LANGUAGES, value="Python", label="Language",
+                                    filterable=False, elem_classes="field-select",
+                                    min_width=150,
+                                )
+                                mode = gr.Dropdown(
+                                    REVIEW_MODE_NAMES, value="General", label="Review focus",
+                                    filterable=False, elem_classes="field-select",
+                                    min_width=150,
+                                )
+                            code = gr.Code(
+                                value="", language="python", lines=16,
+                                show_label=False, container=False,
+                                elem_classes="code-input",
+                            )
+                            with gr.Row(elem_classes="assist-row"):
+                                autodetect = gr.Checkbox(
+                                    value=True, label="Auto-detect language",
+                                    elem_classes="detect-check",
+                                )
+                                detect_status = gr.Markdown("", elem_classes="detect-status")
+                            with gr.Row(elem_classes="actions-row"):
+                                review_btn = gr.Button(
+                                    "Review code", variant="primary",
+                                    elem_classes="review-btn", scale=3,
+                                )
+                                sample_btn = gr.Button(
+                                    "Try sample", elem_classes="secondary-btn", scale=1,
+                                )
+                                clear_btn = gr.Button(
+                                    "Clear", elem_classes="secondary-btn", scale=1,
+                                )
+                        gr.HTML(
+                            "<p class='privacy-note'>Without an API key, a limited static scan runs locally. "
+                            "AI reviews send your code to the configured provider.</p>"
                         )
-                    detect_status = gr.Markdown("", elem_classes="detect-status")
 
-            # ============ MIDDLE: Score + Summary ============
-            with gr.Column(scale=4, min_width=240, elem_classes="col-mid"):
-                score = gr.HTML(
-                    SCORE_PLACEHOLDER,
-                    elem_classes="panel score-panel panel--in",
+                    with gr.Column(scale=7, min_width=430, elem_classes="result-column"):
+                        gr.HTML(
+                            "<div class='section-heading'><span class='section-number'>02</span>"
+                            "<div><h2>Review results</h2><p>Start with the summary, then explore each finding.</p></div></div>"
+                        )
+                        with gr.Row(equal_height=False, elem_classes="overview-row"):
+                            score = gr.HTML(SCORE_PLACEHOLDER, elem_classes="surface score-surface")
+                            summary = gr.Markdown(
+                                "### Summary\n\nRun a review to see the key takeaways.",
+                                elem_classes="surface summary-surface",
+                            )
+                        with gr.Column(elem_classes="surface results-surface"):
+                            gr.HTML("<h3 class='result-group-title'>Findings</h3>")
+                            gr.HTML("<h4 class='result-section-title'>Bugs</h4>")
+                            bugs_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            gr.HTML("<h4 class='result-section-title'>Security</h4>")
+                            security_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            gr.HTML("<h4 class='result-section-title'>Performance</h4>")
+                            performance_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                        with gr.Column(elem_classes="surface results-surface"):
+                            gr.HTML("<h3 class='result-group-title'>Code quality</h3>")
+                            gr.HTML("<h4 class='result-section-title'>Architecture</h4>")
+                            architecture_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            gr.HTML("<h4 class='result-section-title'>Standards</h4>")
+                            best_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            gr.HTML("<h4 class='result-section-title'>Complexity</h4>")
+                            complexity_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                        with gr.Column(elem_classes="surface results-surface"):
+                            gr.HTML("<h3 class='result-group-title'>Refactored code</h3>")
+                            gr.Markdown("AI reviews can include a suggested rewrite.", elem_classes="tab-helper")
+                            refactored_out = gr.Code(
+                                label="Suggested code", language="python",
+                                visible=False, elem_classes="refactor-code",
+                            )
+                        with gr.Column(elem_classes="surface results-surface"):
+                            gr.HTML("<h3 class='result-group-title'>Full report</h3>")
+                            download_btn = gr.DownloadButton(
+                                "Download Markdown report",
+                                visible=False, elem_classes="download-btn",
+                            )
+                            with gr.Accordion("Read full report", open=False, elem_classes="report-accordion"):
+                                report_out = gr.Markdown(
+                                    "_Your complete report will appear here._",
+                                    elem_classes="report-content",
+                                )
+
+            with gr.Tab("History", id="history"):
+                gr.HTML(
+                    "<div class='history-intro'><span class='eyebrow'>THIS SESSION</span>"
+                    "<h1>Review history</h1>"
+                    "<p>Reopen a previous result and continue from its code.</p></div>"
                 )
-                summary = gr.Markdown(
-                    "<div class='card-head'>"
-                    f"{_icon('summarize', 'card-head__msicon')}"
-                    "<span class='card-head__title'>Summary</span></div>"
-                    "<div class='idle-hint'>Add code and run a review to see your summary.</div>",
-                    elem_classes="panel summary-panel panel--in",
-                )
+                with gr.Row(elem_classes="history-controls"):
+                    history_picker = gr.Dropdown(
+                        choices=[], label="Choose a review", interactive=True,
+                        elem_classes="history-picker",
+                    )
+                    reopen_btn = gr.Button(
+                        "Open review", variant="primary",
+                        elem_classes="reopen-btn", interactive=False,
+                    )
+                history_view = gr.HTML(render_history([]), elem_classes="history-view")
 
-            # ============ RIGHT: Analysis Tabs ============
-            with gr.Column(scale=6, min_width=360, elem_classes="col-tabs"):
-                with gr.Group(elem_classes="panel tabs-panel panel--in"):
-                  with gr.Tabs(elem_classes="result-tabs"):
-                    with gr.Tab("Bugs"):
-                        bugs_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Security"):
-                        security_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Performance"):
-                        performance_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Architecture"):
-                        architecture_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Standards"):
-                        best_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Complexity"):
-                        complexity_out = gr.Markdown(_IDLE)
-                    with gr.Tab("Refactored"):
-                        refactored_out = gr.Code(
-                            label="Refactored code",
-                            language="python",
-                            visible=False,
-                        )
-                    with gr.Tab("Report"):
-                        report_out = gr.Markdown(
-                            "_The full Markdown report will appear here._",
-                            elem_classes="report-panel",
-                        )
-                        download_btn = gr.DownloadButton(
-                            "Download Markdown report",
-                            visible=False,
-                            elem_classes="download-btn",
-                        )
+        gr.HTML("<div class='app-footer'>AI Code Reviewer Pro <span>·</span> Clear feedback for better code.</div>")
 
-        gr.HTML(FOOTER_HTML)
-
-        # -------------------- Wiring --------------------
         outputs = [
-            score,
-            summary,
-            bugs_out,
-            security_out,
-            performance_out,
-            architecture_out,
-            best_out,
-            complexity_out,
-            refactored_out,
-            report_out,
-            download_btn,
-            history_state,
-            history_view,
-            history_picker,
-            reopen_btn,
+            score, summary, bugs_out, security_out, performance_out,
+            architecture_out, best_out, complexity_out, refactored_out,
+            report_out, download_btn, history_state, history_view,
+            history_picker, reopen_btn,
         ]
-
         review_btn.click(
             fn=run_review,
             inputs=[code, language, mode, autodetect, history_state],
@@ -654,54 +587,26 @@ def build_app() -> gr.Blocks:
             api_name="review",
             show_progress="full",
         )
-
-        # A result always belongs to the source and settings used for that run.
-        # Hide it as soon as the user edits those inputs.
         for source in (code, language, mode):
             source.input(fn=_idle_outputs, inputs=None, outputs=outputs[:11], queue=False)
-
-        # Live auto-detection as the user edits.
         code.change(
             fn=autodetect_on_edit,
             inputs=[code, autodetect, language],
             outputs=[language, code, detect_status],
             show_progress="hidden",
         )
-
         language.change(fn=on_language_change, inputs=language, outputs=code)
-
         clear_btn.click(
-            fn=clear_workspace,
-            inputs=None,
-            outputs=[code, detect_status, *outputs[:11]],
-            queue=False,
+            fn=clear_workspace, inputs=None,
+            outputs=[code, detect_status, *outputs[:11]], queue=False,
         )
         sample_btn.click(
-            fn=load_sample,
-            inputs=None,
-            outputs=[code, language, *outputs[:11]],
-            queue=False,
+            fn=load_sample, inputs=None,
+            outputs=[code, language, *outputs[:11]], queue=False,
         )
         reopen_btn.click(
-            fn=restore_review,
-            inputs=[history_picker, history_state],
-            outputs=[*outputs[:11], code, language, mode, dashboard_col, history_col],
-            queue=False,
-        )
-
-        # -------- Nav view switching (Dashboard <-> History) --------
-        # queue=False -> instant UI toggle, bypasses the inference queue.
-        nav_dashboard.click(
-            fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
-            inputs=None,
-            outputs=[dashboard_col, history_col],
-            queue=False,
-        )
-        nav_history.click(
-            fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
-            inputs=None,
-            outputs=[dashboard_col, history_col],
-            queue=False,
+            fn=restore_review, inputs=[history_picker, history_state],
+            outputs=[*outputs[:11], code, language, mode, main_tabs], queue=False,
         )
 
     return demo
