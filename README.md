@@ -12,8 +12,8 @@ license: mit
 
 # AI Code Reviewer Pro
 
-A production-ready, multi-language **AI code review** application with a modern
-dark UI. Paste code, pick a language and a review lens, and get a structured,
+A multi-language **AI code review** application with a clean,
+light-only UI. Paste code, pick a language and a review lens, and get a structured,
 principal-level review — bugs, security, performance, architecture,
 best-practices, complexity analysis, and a fully refactored version — all
 rendered as an interactive report you can copy or download.
@@ -25,7 +25,10 @@ Provider-agnostic: run it on **Groq, Google Gemini, or OpenRouter for free**
 
 ## ✨ Features
 
-- **Modern dark, responsive UI** built with Gradio Blocks and custom CSS.
+- **Light-only, responsive UI** built with Gradio Blocks and custom CSS.
+- **Session history:** reopen any of the last 20 reviews, including its code and report.
+- **Safer review flow:** empty and oversized inputs are caught before an API call, and every download gets a unique filename.
+- **Sample snippet** to explore the app without supplying your own code.
 - **Syntax-highlighted code editor** that adapts to the selected language.
 - **15 languages:** Swift, Dart, Python, JavaScript, TypeScript, Java, Kotlin,
   Go, Rust, C#, C++, PHP, Ruby, SQL, HTML/CSS.
@@ -113,7 +116,7 @@ AI-Code-Reviewer-Pro/
 ├── reviewer.py       # Review engine (multi-provider, OpenAI-compatible)
 ├── prompts.py        # Prompt engineering + JSON contract
 ├── utils.py          # Catalogs, metrics, Markdown rendering
-├── theme.css         # Dark responsive theme
+├── theme.css         # Light responsive theme
 ├── requirements.txt
 ├── README.md
 ├── .env.example
@@ -128,8 +131,11 @@ AI-Code-Reviewer-Pro/
 2. `reviewer.py` calls the active provider's OpenAI-compatible API, extracts the JSON, and
    normalizes it so every field is always present. It also computes lightweight,
    dependency-free static metrics locally.
-3. `app.py` renders the structured result into a tabbed, dark UI and a
+3. `app.py` renders the structured result into a tabbed, light UI and a
    downloadable Markdown report.
+
+Review history is kept in the current browser session. Generated reports are
+stored under `assets/reports/` on the server and excluded from Git.
 
 ---
 

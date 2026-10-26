@@ -1,35 +1,11 @@
-/* AI Code Reviewer Pro — micro-interactions.
-   Self-installing and fully defensive: if anything is unavailable the UI still
-   works, it just loses the extra polish. Injected once into <head>. */
+/* Light UI enhancements. Core navigation and review actions work without JS. */
 (function () {
   "use strict";
-
-  /* ---- Ripple effect on primary buttons ---- */
-  function attachRipple(btn) {
-    if (btn.__rippleBound) return;
-    btn.__rippleBound = true;
-    btn.style.position = btn.style.position || "relative";
-    btn.style.overflow = "hidden";
-    btn.addEventListener("click", function (e) {
-      try {
-        var rect = btn.getBoundingClientRect();
-        var span = document.createElement("span");
-        var size = Math.max(rect.width, rect.height);
-        span.className = "rc-ripple";
-        span.style.width = span.style.height = size + "px";
-        span.style.left = e.clientX - rect.left - size / 2 + "px";
-        span.style.top = e.clientY - rect.top - size / 2 + "px";
-        btn.appendChild(span);
-        setTimeout(function () {
-          span.remove();
-        }, 650);
-      } catch (_) {}
-    });
-  }
 
   /* ---- Animated count-up + ring fill for the score gauge ---- */
   function animateScore(ring) {
     try {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       var numEl = ring.querySelector(".score-num");
       var raw = ring.getAttribute("data-score") || "";
       var target = parseFloat(raw);
@@ -55,9 +31,6 @@
 
   /* ---- Observe the DOM and (re)wire elements as Gradio renders ---- */
   function scan() {
-    document
-      .querySelectorAll(".review-btn, .download-btn, .ghost-btn")
-      .forEach(attachRipple);
     document.querySelectorAll(".score-ring[data-score]").forEach(function (r) {
       if (r.getAttribute("data-score") !== "—") animateScore(r);
     });
@@ -72,6 +45,15 @@
         link.classList.add("is-active");
       });
     });
+    document.querySelectorAll(".reopen-btn").forEach(function (button) {
+      if (button.__navBound) return;
+      button.__navBound = true;
+      button.addEventListener("click", function () {
+        document.querySelectorAll(".topnav__link").forEach(function (link) {
+          link.classList.toggle("is-active", link.textContent.trim() === "Dashboard");
+        });
+      });
+    });
   }
 
   function boot() {
@@ -82,8 +64,6 @@
       });
       mo.observe(document.body, { childList: true, subtree: true, characterData: true });
     } catch (_) {}
-    // Fallback polling in case observation misses fast updates.
-    setInterval(scan, 1200);
   }
 
   if (document.readyState === "loading") {

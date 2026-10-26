@@ -190,6 +190,10 @@ def review_code(
             break
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            # A failed request should only be retried without JSON mode when
+            # that feature appears to be the unsupported part of the request.
+            if not json_mode or not _json_mode_unsupported(exc):
+                break
             continue
 
     if response is None:
@@ -231,6 +235,11 @@ def _response_text(response: Any) -> str:
     return ""
 
 
+def _json_mode_unsupported(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(term in message for term in ("response_format", "json_object", "json mode"))
+
+
 # Keys that must always exist so the renderer never trips on missing fields.
 _ARRAY_KEYS = ("bugs", "security_issues", "performance_issues", "best_practices")
 _OBJECT_KEYS = ("architecture_review", "complexity")
@@ -238,13 +247,26 @@ _OBJECT_KEYS = ("architecture_review", "complexity")
 
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     """Ensure every expected key exists with a sane default."""
+    if not isinstance(data, dict):
+        raise ReviewError("The model returned a JSON value instead of a review object.")
     for key in _ARRAY_KEYS:
         if not isinstance(data.get(key), list):
             data[key] = []
+        else:
+            data[key] = [item for item in data[key] if isinstance(item, dict)]
     for key in _OBJECT_KEYS:
         if not isinstance(data.get(key), dict):
             data[key] = {}
-    data.setdefault("overall_score", "—")
-    data.setdefault("summary", "")
-    data.setdefault("refactored_code", "")
+    architecture = data["architecture_review"]
+    architecture["assessment"] = str(architecture.get("assessment") or "")
+    for key in ("strengths", "concerns", "suggestions"):
+        value = architecture.get(key)
+        architecture[key] = [str(item) for item in value] if isinstance(value, list) else []
+    for key in ("summary", "refactored_code"):
+        data[key] = str(data.get(key) or "")
+    try:
+        score = float(data.get("overall_score"))
+        data["overall_score"] = round(max(0.0, min(10.0, score)), 1)
+    except (TypeError, ValueError):
+        data["overall_score"] = "—"
     return data

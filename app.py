@@ -1,6 +1,6 @@
 """AI Code Reviewer Pro — Gradio application entry point.
 
-A premium, animated, dark, responsive UI for reviewing source code across many
+A light, responsive UI for reviewing source code across many
 languages and review lenses. The heavy lifting lives in `reviewer.py`; this
 module wires the interface, formats results, and handles errors gracefully.
 """
@@ -8,8 +8,10 @@ module wires the interface, formats results, and handles errors gracefully.
 from __future__ import annotations
 
 import datetime as _dt
+import html
 import os
 from pathlib import Path
+from uuid import uuid4
 
 try:
     from dotenv import load_dotenv
@@ -73,17 +75,14 @@ BRAND_HTML = f"""
 
 NAV_RIGHT_HTML = f"""
 <div class="topnav__right">
-  <div class="live-pill"><span class="live-dot"></span> Live Analysis</div>
-  <button class="icon-btn" title="Notifications">{_icon('notifications')}</button>
-  <div class="avatar">{_icon('smart_toy')}</div>
+  <div class="live-pill"><span class="live-dot"></span> Ready for review</div>
 </div>
 """
 
 FOOTER_HTML = """
 <footer class="site-footer">
   <div class="site-footer__left">
-    <p class="site-footer__copy">© 2026 AI Code Reviewer Pro · Deep analysis active.</p>
-    <p class="site-footer__meta">ENGINE_V4.2.0_STABLE // MULTI_PROVIDER</p>
+    <p class="site-footer__copy">AI Code Reviewer Pro · Review code with a clear next step.</p>
   </div>
 </footer>
 """
@@ -123,11 +122,11 @@ def render_history(items: list[dict]) -> str:
             "<div class='hist-card'>"
             f"<div class='hist-score hist-score--{vc}'>{score_txt}</div>"
             "<div class='hist-body'>"
-            f"<div class='hist-meta'><span class='hist-lang'>{it.get('language','')}</span>"
-            f"<span class='hist-mode'>{it.get('mode','')}</span>"
-            f"<span class='hist-time'>{it.get('time','')}</span></div>"
-            f"<div class='hist-summary'>{summary}</div>"
-            f"<div class='hist-provider'>⚙️ {it.get('provider','')}</div>"
+            f"<div class='hist-meta'><span class='hist-lang'>{html.escape(str(it.get('language','')))}</span>"
+            f"<span class='hist-mode'>{html.escape(str(it.get('mode','')))}</span>"
+            f"<span class='hist-time'>{html.escape(str(it.get('time','')))}</span></div>"
+            f"<div class='hist-summary'>{html.escape(summary)}</div>"
+            f"<div class='hist-provider'>Reviewed with {html.escape(str(it.get('provider','')))}</div>"
             "</div></div>"
         )
     return "<div class='hist-list'>" + "".join(rows) + "</div>"
@@ -249,8 +248,8 @@ def _error_card(title: str, message: str) -> str:
     """A premium, animated error card (styled + shake via CSS)."""
     return (
         "<div class='error-card'>"
-        f"<div class='error-card__title'>⚠️ {title}</div>"
-        f"<div class='error-card__body'>{message}</div>"
+        f"<div class='error-card__title'>⚠️ {html.escape(title)}</div>"
+        f"<div class='error-card__body'>{html.escape(message)}</div>"
         "</div>"
     )
 
@@ -281,6 +280,49 @@ def _error_outputs(title: str, message: str):
     )
 
 
+def _idle_outputs():
+    """Reset the result area when the source changes or is cleared."""
+    return (
+        SCORE_PLACEHOLDER,
+        "<div class='idle-hint'>Add code and run a review to see your summary.</div>",
+        *([_IDLE] * 6),
+        gr.update(value="", visible=False),
+        "_Your report will appear here after a review._",
+        gr.update(value=None, visible=False),
+    )
+
+
+def _result_outputs(data: dict, metrics: dict, provider: str, model: str,
+                    language: str, mode: str, report_md: str, report_path: str):
+    refactored = data.get("refactored_code", "")
+    engine = ""
+    if provider:
+        engine = (
+            f"<div class='engine-tag'>Reviewed with <strong>{html.escape(provider)}</strong>"
+            f" · <code>{html.escape(model)}</code></div>\n\n"
+        )
+    return (
+        score_card(data.get("overall_score")),
+        f"{engine}### Review summary\n\n{data.get('summary', '') or '_No summary provided._'}",
+        _findings_markdown(data.get("bugs", []), "severity"),
+        _findings_markdown(data.get("security_issues", []), "severity"),
+        _findings_markdown(data.get("performance_issues", []), "impact"),
+        _architecture_markdown(data.get("architecture_review", {})),
+        _best_practices_markdown(data.get("best_practices", [])),
+        _complexity_markdown(data.get("complexity", {}), metrics),
+        gr.update(value=refactored, language=code_language_token(language), visible=bool(refactored)),
+        report_md,
+        gr.update(value=report_path, visible=True),
+    )
+
+
+def _history_choices(history: list[dict]) -> list[tuple[str, str]]:
+    return [
+        (f"{item['time']} · {item['language']} · {item['mode']} · {item.get('score', '—')}/10", item["id"])
+        for item in reversed(history)
+    ]
+
+
 def run_review(
     code: str, language: str, mode: str, autodetect: bool, history: list | None
 ):
@@ -292,12 +334,18 @@ def run_review(
         yield (
             *_error_outputs(
                 "Nothing to review",
-                "Paste some code into the editor, then click "
-                "<strong>Review Code</strong>.",
+                "Paste some code into the editor, then click Review code.",
             ),
             history,
+            render_history(history),
+            gr.update(),
             gr.update(),
         )
+        return
+
+    if len(code) > 30_000:
+        yield (*_error_outputs("Code is too long", "Please keep the input under 30,000 characters."),
+               history, render_history(history), gr.update(), gr.update())
         return
 
     # Auto-detect keeps the language in sync with what was actually pasted.
@@ -310,12 +358,12 @@ def run_review(
         result = review_code(code, language, mode)
     except ReviewError as exc:
         yield (*_error_outputs("Review could not be completed", str(exc)),
-               history, gr.update())
+               history, render_history(history), gr.update(), gr.update())
         return
-    except Exception as exc:  # noqa: BLE001 - never crash the UI
+    except Exception:  # noqa: BLE001 - never crash the UI
         yield (*_error_outputs("Unexpected error",
-                               f"{exc}<br><br>Please try again in a moment."),
-               history, gr.update())
+                               "Please try again in a moment. Check the server log for details."),
+               history, render_history(history), gr.update(), gr.update())
         return
 
     data = result.data
@@ -324,49 +372,63 @@ def run_review(
 
     # Persist the report so it can be downloaded.
     safe_lang = language.replace("/", "-").replace(" ", "_")
-    report_path = REPORTS_DIR / f"code_review_{safe_lang}_{mode.replace(' ', '_')}.md"
+    report_path = REPORTS_DIR / f"code_review_{safe_lang}_{uuid4().hex[:12]}.md"
     report_path.write_text(report_md, encoding="utf-8")
-
-    refactored = data.get("refactored_code", "")
-
-    engine = ""
-    if result.provider:
-        engine = (
-            f"<div class='engine-tag'>⚙️ Reviewed with <strong>{result.provider}</strong>"
-            f" · <code>{result.model}</code></div>\n\n"
-        )
 
     # Record this review in the session history (newest rendered first).
     history.append(
         {
-            "time": _dt.datetime.now().strftime("%H:%M:%S"),
+            "id": uuid4().hex,
+            "time": _dt.datetime.now().strftime("%H:%M"),
             "language": language,
             "mode": mode,
             "score": data.get("overall_score"),
             "summary": (data.get("summary") or "")[:180],
             "provider": result.provider or "—",
+            "model": result.model,
+            "code": code,
+            "data": data,
+            "metrics": metrics,
+            "report": report_md,
+            "report_path": str(report_path),
         }
     )
+    history = history[-20:]
 
     yield (
-        score_card(data.get("overall_score")),
-        f"{engine}### 📝 Summary\n\n{data.get('summary', '') or '_No summary provided._'}",
-        _findings_markdown(data.get("bugs", []), "severity"),
-        _findings_markdown(data.get("security_issues", []), "severity"),
-        _findings_markdown(data.get("performance_issues", []), "impact"),
-        _architecture_markdown(data.get("architecture_review", {})),
-        _best_practices_markdown(data.get("best_practices", [])),
-        _complexity_markdown(data.get("complexity", {}), metrics),
-        gr.update(
-            value=refactored,
-            language=code_language_token(language),
-            visible=bool(refactored),
-        ),
-        report_md,
-        gr.update(value=str(report_path), visible=True),
+        *_result_outputs(data, metrics, result.provider, result.model, language,
+                         mode, report_md, str(report_path)),
         history,
         render_history(history),
+        gr.update(choices=_history_choices(history), value=history[-1]["id"]),
+        gr.update(interactive=True),
     )
+
+
+def restore_review(review_id: str, history: list[dict] | None):
+    item = next((it for it in history or [] if it.get("id") == review_id), None)
+    if not item:
+        return (*_idle_outputs(), gr.update(), gr.update(), gr.update(),
+                gr.update(visible=True), gr.update(visible=False))
+    return (
+        *_result_outputs(item["data"], item["metrics"], item["provider"],
+                         item["model"], item["language"], item["mode"],
+                         item["report"], item["report_path"]),
+        gr.update(value=item["code"], language=code_language_token(item["language"])),
+        gr.update(value=item["language"]),
+        gr.update(value=item["mode"]),
+        gr.update(visible=True),
+        gr.update(visible=False),
+    )
+
+
+def clear_workspace():
+    return (gr.update(value=""), gr.update(value=""), *_idle_outputs())
+
+
+def load_sample():
+    return (gr.update(value=PLACEHOLDER_CODE, language="python"),
+            gr.update(value="Python"), *_idle_outputs())
 
 
 def on_language_change(language: str):
@@ -405,16 +467,13 @@ def build_app() -> gr.Blocks:
     with gr.Blocks(
         title="AI Code Reviewer Pro",
         theme=gr.themes.Base(
-            primary_hue=gr.themes.colors.indigo,
-            neutral_hue=gr.themes.colors.slate,
+            primary_hue=gr.themes.colors.blue,
+            neutral_hue=gr.themes.colors.gray,
         ),
         css=THEME_CSS,
         head=HEAD_HTML,
         fill_height=True,
     ) as demo:
-        # Ambient background glow.
-        gr.HTML("<div class='aurora'></div><div class='grid-overlay'></div>")
-
         history_state = gr.State([])
 
         # Top navigation bar (brand · clickable nav · status cluster).
@@ -436,11 +495,22 @@ def build_app() -> gr.Blocks:
                 "<div class='view-head__sub'>Every review you run this session</div>"
                 "</div></div>"
             )
+            history_picker = gr.Dropdown(
+                choices=[], label="Choose a review to reopen", interactive=True,
+                elem_classes="history-picker",
+            )
+            reopen_btn = gr.Button("Open selected review", variant="primary", elem_classes="reopen-btn", interactive=False)
             history_view = gr.HTML(render_history([]))
 
       # ================= DASHBOARD VIEW =================
         dashboard_col = gr.Column(visible=True, elem_classes="view-dashboard")
         with dashboard_col:
+          gr.HTML(
+              "<section class='hero'><div class='hero-kicker'>YOUR CODE, CLEARER</div>"
+              "<h1>A better review starts here.</h1>"
+              "<p>Paste a snippet, choose a focus, and turn findings into practical fixes.</p>"
+              "</section>"
+          )
           with gr.Row(equal_height=False, elem_classes="workspace"):
             # ============ LEFT: Code Editor ============
             with gr.Column(scale=6, min_width=420, elem_classes="col-editor"):
@@ -448,7 +518,7 @@ def build_app() -> gr.Blocks:
                     gr.HTML(
                         "<div class='editor-titlebar'>"
                         f"{_icon('code', 'editor-title__icon')}"
-                        "<span>Editor: <b>main.py</b></span></div>"
+                        "<span>Source code</span><span class='editor-titlebar__hint'>Paste a snippet to begin</span></div>"
                     )
                     with gr.Row(elem_classes="editor-toolbar", equal_height=True):
                         language = gr.Dropdown(
@@ -470,21 +540,24 @@ def build_app() -> gr.Blocks:
                             scale=1,
                         )
                     code = gr.Code(
-                        value=PLACEHOLDER_CODE,
+                        value="",
                         language="python",
                         label="Your code",
-                        lines=22,
+                        lines=18,
                         elem_classes="code-editor",
                     )
                     with gr.Row(elem_classes="editor-actions"):
                         review_btn = gr.Button(
-                            "🚀  Review Code",
+                            "Review code",
                             variant="primary",
                             elem_classes="review-btn",
                             scale=3,
                         )
+                        sample_btn = gr.Button(
+                            "Try sample", elem_classes="ghost-btn", scale=1
+                        )
                         clear_btn = gr.Button(
-                            "🗑  Clear", elem_classes="ghost-btn", scale=1
+                            "Clear", elem_classes="ghost-btn", scale=1
                         )
 
                 with gr.Group(elem_classes="panel detect-card panel--in"):
@@ -493,7 +566,7 @@ def build_app() -> gr.Blocks:
                             "<div class='detect-label'>"
                             f"{_icon('auto_fix_high', 'detect-label__icon')}"
                             "<div><div class='detect-title'>Auto-detect language</div>"
-                            "<div class='detect-sub'>Engine analyzes syntax patterns</div>"
+                            "<div class='detect-sub'>Suggest a language as you type</div>"
                             "</div></div>"
                         )
                         autodetect = gr.Checkbox(
@@ -516,8 +589,7 @@ def build_app() -> gr.Blocks:
                     "<div class='card-head'>"
                     f"{_icon('summarize', 'card-head__msicon')}"
                     "<span class='card-head__title'>Summary</span></div>"
-                    "<div class='idle-hint'><span class='idle-dot'></span> "
-                    "AI is standing by to perform deep code analysis.</div>",
+                    "<div class='idle-hint'>Add code and run a review to see your summary.</div>",
                     elem_classes="panel summary-panel panel--in",
                 )
 
@@ -525,31 +597,31 @@ def build_app() -> gr.Blocks:
             with gr.Column(scale=6, min_width=360, elem_classes="col-tabs"):
                 with gr.Group(elem_classes="panel tabs-panel panel--in"):
                   with gr.Tabs(elem_classes="result-tabs"):
-                    with gr.Tab("🐞 Bugs"):
+                    with gr.Tab("Bugs"):
                         bugs_out = gr.Markdown(_IDLE)
-                    with gr.Tab("🔒 Security"):
+                    with gr.Tab("Security"):
                         security_out = gr.Markdown(_IDLE)
-                    with gr.Tab("⚡ Performance"):
+                    with gr.Tab("Performance"):
                         performance_out = gr.Markdown(_IDLE)
-                    with gr.Tab("🏛️ Architecture"):
+                    with gr.Tab("Architecture"):
                         architecture_out = gr.Markdown(_IDLE)
-                    with gr.Tab("✅ Standards"):
+                    with gr.Tab("Standards"):
                         best_out = gr.Markdown(_IDLE)
-                    with gr.Tab("📊 Complexity"):
+                    with gr.Tab("Complexity"):
                         complexity_out = gr.Markdown(_IDLE)
-                    with gr.Tab("♻️ Refactored"):
+                    with gr.Tab("Refactored"):
                         refactored_out = gr.Code(
                             label="Refactored code",
                             language="python",
                             visible=False,
                         )
-                    with gr.Tab("📄 Report"):
+                    with gr.Tab("Report"):
                         report_out = gr.Markdown(
                             "_The full Markdown report will appear here._",
                             elem_classes="report-panel",
                         )
                         download_btn = gr.DownloadButton(
-                            "⬇️  Download report (.md)",
+                            "Download Markdown report",
                             visible=False,
                             elem_classes="download-btn",
                         )
@@ -571,6 +643,8 @@ def build_app() -> gr.Blocks:
             download_btn,
             history_state,
             history_view,
+            history_picker,
+            reopen_btn,
         ]
 
         review_btn.click(
@@ -580,6 +654,11 @@ def build_app() -> gr.Blocks:
             api_name="review",
             show_progress="full",
         )
+
+        # A result always belongs to the source and settings used for that run.
+        # Hide it as soon as the user edits those inputs.
+        for source in (code, language, mode):
+            source.input(fn=_idle_outputs, inputs=None, outputs=outputs[:11], queue=False)
 
         # Live auto-detection as the user edits.
         code.change(
@@ -592,9 +671,22 @@ def build_app() -> gr.Blocks:
         language.change(fn=on_language_change, inputs=language, outputs=code)
 
         clear_btn.click(
-            fn=lambda: (gr.update(value=""), gr.update(value="")),
+            fn=clear_workspace,
             inputs=None,
-            outputs=[code, detect_status],
+            outputs=[code, detect_status, *outputs[:11]],
+            queue=False,
+        )
+        sample_btn.click(
+            fn=load_sample,
+            inputs=None,
+            outputs=[code, language, *outputs[:11]],
+            queue=False,
+        )
+        reopen_btn.click(
+            fn=restore_review,
+            inputs=[history_picker, history_state],
+            outputs=[*outputs[:11], code, language, mode, dashboard_col, history_col],
+            queue=False,
         )
 
         # -------- Nav view switching (Dashboard <-> History) --------
