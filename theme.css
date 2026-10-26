@@ -242,7 +242,7 @@ html, body, gradio-app { background: var(--page) !important; }
 .summary-surface h3 { margin: 0 0 9px !important; color: var(--ink); font-size: 14px !important; font-weight: 800 !important; }
 .summary-surface p { margin: 0 !important; color: #4c5b70; }
 .results-surface { overflow: hidden; padding: 17px 20px 19px !important; margin-bottom: 14px !important; gap: 0 !important; }
-.result-group-title { margin: 0 0 7px; padding-bottom: 12px; border-bottom: 1px solid var(--border); color: var(--ink); font-size: 14px; font-weight: 800; }
+.result-group-title { margin: 0 0 7px; color: var(--ink); font-size: 14px; font-weight: 800; }
 .result-section-title { margin: 10px 0 6px; padding-top: 15px; border-top: 1px solid var(--border); color: var(--ink); font-size: 13px; font-weight: 800; }
 .result-content { color: #3d4c62; font-size: 12.5px; line-height: 1.55; }
 .results-surface .result-content { padding: 0 !important; }
