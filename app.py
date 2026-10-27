@@ -499,7 +499,7 @@ def build_app() -> gr.Blocks:
                                     elem_classes="review-btn", scale=3,
                                 )
                                 sample_btn = gr.Button(
-                                    "Try sample", elem_classes="secondary-btn", scale=1,
+                                    "Review sample", elem_classes="secondary-btn", scale=1,
                                 )
                                 clear_btn = gr.Button(
                                     "Clear", elem_classes="secondary-btn", scale=1,
@@ -603,6 +603,11 @@ def build_app() -> gr.Blocks:
         sample_btn.click(
             fn=load_sample, inputs=None,
             outputs=[code, language, *outputs[:11]], queue=False,
+        ).then(
+            fn=run_review,
+            inputs=[code, language, mode, autodetect, history_state],
+            outputs=outputs,
+            show_progress="full",
         )
         reopen_btn.click(
             fn=restore_review, inputs=[history_picker, history_state],
