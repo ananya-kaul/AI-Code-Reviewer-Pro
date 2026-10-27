@@ -1,10 +1,10 @@
-"""Core review engine — provider-agnostic, works with free LLM APIs.
+"""Core review engine using OpenAI-compatible provider APIs.
 
 Uses the OpenAI-compatible Chat Completions interface, so the same code drives
 several providers just by pointing at a different ``base_url``:
 
     * Groq        — free, fast, no credit card   (GROQ_API_KEY)
-    * Google Gemini — free tier                  (GEMINI_API_KEY)
+    * Google Gemini                              (GEMINI_API_KEY)
     * OpenRouter  — free ``:free`` models         (OPENROUTER_API_KEY)
     * OpenAI      — paid                          (OPENAI_API_KEY)
 
@@ -43,7 +43,7 @@ PROVIDERS: dict[str, Provider] = {
         "Groq",
         "https://api.groq.com/openai/v1",
         "GROQ_API_KEY",
-        "llama-3.3-70b-versatile",
+        "openai/gpt-oss-120b",
         "https://console.groq.com/keys",
     ),
     "gemini": Provider(
@@ -51,7 +51,7 @@ PROVIDERS: dict[str, Provider] = {
         "Google Gemini",
         "https://generativelanguage.googleapis.com/v1beta/openai/",
         "GEMINI_API_KEY",
-        "gemini-2.0-flash",
+        "gemini-3.6-flash",
         "https://aistudio.google.com/app/apikey",
     ),
     "openrouter": Provider(
@@ -73,6 +73,13 @@ PROVIDERS: dict[str, Provider] = {
 }
 
 _DETECT_ORDER = ["groq", "gemini", "openrouter", "openai"]
+
+# Retry only when a model ID has disappeared or this key cannot access it.
+# Never retry authentication, quota, or provider outages against another model.
+_MODEL_FALLBACKS = {
+    "groq": ("openai/gpt-oss-120b", "openai/gpt-oss-20b"),
+    "gemini": ("gemini-3.6-flash", "gemini-3.5-flash-lite"),
+}
 
 
 class ReviewError(RuntimeError):
@@ -149,7 +156,8 @@ def _make_client(provider: Provider, api_key: str):
     return OpenAI(**kwargs)
 
 
-def _chat(client, model: str, system: str, user: str, json_mode: bool):
+def _chat(client, model: str, system: str, user: str, json_mode: bool,
+          provider_key: str = ""):
     """One Chat Completions call; json_mode requests a strict JSON object."""
     kwargs: dict[str, Any] = {
         "model": model,
@@ -162,6 +170,9 @@ def _chat(client, model: str, system: str, user: str, json_mode: bool):
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
+    if provider_key == "groq" and model.startswith("openai/gpt-oss-"):
+        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        kwargs["reasoning_format"] = "hidden"
     return client.chat.completions.create(**kwargs)
 
 
@@ -193,17 +204,26 @@ def review_code(
     # once in plain mode and rely on defensive JSON extraction.
     response = None
     last_error: Exception | None = None
-    for json_mode in (True, False):
-        try:
-            response = _chat(client, model, system_prompt, user_prompt, json_mode)
-            break
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            # A failed request should only be retried without JSON mode when
-            # that feature appears to be the unsupported part of the request.
-            if not json_mode or not _json_mode_unsupported(exc):
+    candidates = [model, *(
+        candidate for candidate in _MODEL_FALLBACKS.get(provider.key, ())
+        if candidate != model
+    )]
+    for candidate in candidates:
+        for json_mode in (True, False):
+            try:
+                response = _chat(
+                    client, candidate, system_prompt, user_prompt, json_mode,
+                    provider.key,
+                )
+                model = candidate
                 break
-            continue
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if json_mode and _json_mode_unsupported(exc):
+                    continue
+                break
+        if response is not None or not _model_unavailable(last_error):
+            break
 
     if response is None:
         raise ReviewError(
@@ -320,6 +340,16 @@ def _response_text(response: Any) -> str:
 def _json_mode_unsupported(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(term in message for term in ("response_format", "json_object", "json mode"))
+
+
+def _model_unavailable(exc: Exception | None) -> bool:
+    if exc is None or getattr(exc, "status_code", None) not in (400, 404):
+        return False
+    message = str(exc).lower()
+    return "model" in message and any(term in message for term in (
+        "does not exist", "do not have access", "not found",
+        "decommissioned", "not available", "not supported",
+    ))
 
 
 # Keys that must always exist so the renderer never trips on missing fields.

@@ -145,7 +145,7 @@ html, body, gradio-app { background: var(--page) !important; }
 .editor-surface { overflow: hidden; padding: 0 !important; gap: 0 !important; }
 .settings-row {
   display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px !important;
   padding: 18px 18px 16px !important;
   margin: 0 !important;
@@ -187,6 +187,17 @@ html, body, gradio-app { background: var(--page) !important; }
 .assist-row { align-items: center !important; gap: 12px !important; margin: 0 !important; padding: 10px 18px !important; border-top: 1px solid var(--border); }
 .detect-check { flex: 0 0 auto !important; min-width: 0 !important; font-size: 12px !important; color: var(--muted) !important; }
 .detect-check label { color: var(--muted) !important; font-size: 12px !important; }
+.detect-check input[type="checkbox"]:checked {
+  display: inline-grid !important;
+  place-items: center !important;
+  border-color: var(--blue) !important;
+  background: var(--blue) !important;
+}
+.detect-check input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #fff;
+  font: 800 12px/1 sans-serif;
+}
 .detect-status { min-width: 0 !important; color: var(--muted); font-size: 11px !important; }
 .detect-status p { margin: 0 !important; }
 .actions-row {
@@ -294,6 +305,9 @@ input, select, textarea { color: var(--ink) !important; background: #fff !import
 ul.options, .options, [role="listbox"] { background: #fff !important; color: var(--ink) !important; border: 1px solid var(--border) !important; box-shadow: 0 16px 36px rgba(31,49,84,.12) !important; }
 li[role="option"]:hover, li[role="option"][aria-selected="true"] { background: var(--blue-soft) !important; color: var(--blue) !important; }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--blue) !important; outline-offset: 2px; }
+@media (max-width: 1400px) {
+  .settings-row > .form { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 960px) {
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 27px !important; }
 }

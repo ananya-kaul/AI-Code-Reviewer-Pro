@@ -18,8 +18,8 @@ principal-level review — bugs, security, performance, architecture,
 best-practices, complexity analysis, and a fully refactored version — all
 rendered as an interactive report you can copy or download.
 
-Provider-agnostic: run it on **Groq, Google Gemini, or OpenRouter for free**
-(or OpenAI), with careful prompt engineering.
+Provider-agnostic: run it on **Groq, Google Gemini, OpenRouter, or OpenAI**.
+Check the provider's current pricing and rate limits before configuring a key.
 
 ---
 
@@ -70,8 +70,8 @@ present. You only need **one**:
 
 | Provider | Cost | Get a key |
 | --- | --- | --- |
-| **Groq** (recommended) | **Free**, no card | https://console.groq.com/keys |
-| **Google Gemini** | **Free** tier | https://aistudio.google.com/app/apikey |
+| **Groq** (recommended) | Free tier and usage pricing | https://console.groq.com/keys |
+| **Google Gemini** | Depends on model and account | https://aistudio.google.com/app/apikey |
 | **OpenRouter** | **Free** `:free` models | https://openrouter.ai/keys |
 | OpenAI | Paid | https://platform.openai.com/api-keys |
 
@@ -110,6 +110,9 @@ Open the printed local URL (default `http://localhost:7860`).
 | `GRADIO_SERVER_PORT`  | `7860`             | Port to serve on.                               |
 
 > For AI reviews, set **one** provider key. Auto-detection order: Groq → Gemini → OpenRouter → OpenAI.
+> The Groq default is `openai/gpt-oss-120b`; the Gemini default is
+> `gemini-3.6-flash`. If either provider rejects a retired model ID, the app
+> retries a supported model from that provider and shows the model it used.
 
 ---
 
