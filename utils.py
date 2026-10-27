@@ -236,7 +236,7 @@ def extract_json(text: str) -> dict[str, Any]:
 
 def _render_findings(items: list[dict[str, Any]], key: str) -> str:
     if not items:
-        return "_No issues found._\n"
+        return "_No issues detected by this review._\n"
     out = []
     for i, it in enumerate(items, 1):
         level = it.get("severity") or it.get("impact") or "n/a"
@@ -256,6 +256,7 @@ def render_markdown_report(
     language: str,
     mode: str,
     metrics: dict[str, int],
+    reviewer_label: str = "",
 ) -> str:
     """Render the full structured result into a shareable Markdown report."""
     stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -268,9 +269,11 @@ def render_markdown_report(
     md.append(f"# Code Review Report\n")
     md.append(
         f"**Language:** {language}  ·  **Mode:** {mode}  ·  "
+        f"**Review:** {reviewer_label or 'AI provider'}  ·  "
         f"**Generated:** {stamp}\n"
     )
-    md.append(f"## Overall Score: {score} / 10\n")
+    md.append(f"## Overall Score: {score} / 10\n" if isinstance(score, (int, float))
+              else "## Overall Score: Not available\n")
     if summary:
         md.append(f"{summary}\n")
 
@@ -316,7 +319,7 @@ def render_markdown_report(
         f"- **Space complexity:** {complexity.get('estimated_space_complexity', '—')}"
     )
     md.append(
-        f"- **Cyclomatic (model estimate):** "
+        f"- **Cyclomatic estimate:** "
         f"{complexity.get('cyclomatic_estimate', '—')}"
     )
     md.append(

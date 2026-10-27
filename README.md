@@ -12,8 +12,8 @@ license: mit
 
 # AI Code Reviewer Pro
 
-A production-ready, multi-language **AI code review** application with a modern
-dark UI. Paste code, pick a language and a review lens, and get a structured,
+A multi-language **AI code review** application with a clean,
+light-only UI. Paste code, pick a language and a review lens, and get a structured,
 principal-level review — bugs, security, performance, architecture,
 best-practices, complexity analysis, and a fully refactored version — all
 rendered as an interactive report you can copy or download.
@@ -25,7 +25,14 @@ Provider-agnostic: run it on **Groq, Google Gemini, or OpenRouter for free**
 
 ## ✨ Features
 
-- **Modern dark, responsive UI** built with Gradio Blocks and custom CSS.
+- **Light-only, responsive UI** built with Gradio Blocks and custom CSS.
+- **Session history:** reopen any of the last 20 reviews, including its code and report.
+- **Safer review flow:** empty and oversized inputs are caught before an API call, and every download gets a unique filename.
+- **Sample snippet** to explore the app without supplying your own code.
+- **Works without an API key:** local static checks flag selected Python syntax,
+  mutable defaults, recursion, bare exception handlers, and dynamic execution;
+  JavaScript/TypeScript `eval` and SQL `SELECT *` are also flagged. The local
+  scan is limited and does not assign an AI score or generate a rewrite.
 - **Syntax-highlighted code editor** that adapts to the selected language.
 - **15 languages:** Swift, Dart, Python, JavaScript, TypeScript, Java, Kotlin,
   Go, Rust, C#, C++, PHP, Ruby, SQL, HTML/CSS.
@@ -55,10 +62,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure a provider key (free options available)
+### 2. Configure a provider key for a full AI review (optional)
 
-The app is **provider-agnostic** and auto-detects which LLM to use from whichever
-API key is present. You only need **one**:
+The app starts without a key and runs limited static checks locally. For a full
+AI review, it auto-detects which provider to use from whichever API key is
+present. You only need **one**:
 
 | Provider | Cost | Get a key |
 | --- | --- | --- |
@@ -101,7 +109,7 @@ Open the printed local URL (default `http://localhost:7860`).
 | `GRADIO_SERVER_NAME`  | `0.0.0.0`          | Host interface to bind.                         |
 | `GRADIO_SERVER_PORT`  | `7860`             | Port to serve on.                               |
 
-> Set **one** provider key. Auto-detection order: Groq → Gemini → OpenRouter → OpenAI.
+> For AI reviews, set **one** provider key. Auto-detection order: Groq → Gemini → OpenRouter → OpenAI.
 
 ---
 
@@ -113,7 +121,7 @@ AI-Code-Reviewer-Pro/
 ├── reviewer.py       # Review engine (multi-provider, OpenAI-compatible)
 ├── prompts.py        # Prompt engineering + JSON contract
 ├── utils.py          # Catalogs, metrics, Markdown rendering
-├── theme.css         # Dark responsive theme
+├── theme.css         # Light responsive theme
 ├── requirements.txt
 ├── README.md
 ├── .env.example
@@ -125,11 +133,14 @@ AI-Code-Reviewer-Pro/
 
 1. `prompts.py` builds a strict system + user prompt, including a JSON schema
    the model must satisfy and a mode-specific review lens.
-2. `reviewer.py` calls the active provider's OpenAI-compatible API, extracts the JSON, and
-   normalizes it so every field is always present. It also computes lightweight,
-   dependency-free static metrics locally.
-3. `app.py` renders the structured result into a tabbed, dark UI and a
+2. `reviewer.py` calls the active provider's OpenAI-compatible API when a key is
+   available, or runs limited static checks locally. Provider responses are
+   normalized so every expected field is present. Static metrics are computed locally.
+3. `app.py` renders the structured result into a tabbed, light UI and a
    downloadable Markdown report.
+
+Review history is kept in the current browser session. Generated reports are
+stored under `assets/reports/` on the server and excluded from Git.
 
 ---
 
@@ -142,8 +153,9 @@ This repo ships a [`render.yaml`](render.yaml) Blueprint.
 1. Go to **https://dashboard.render.com/blueprints** → **New Blueprint Instance**.
 2. Connect this GitHub repo (`ananya-kaul/AI-Code-Reviewer-Pro`).
 3. Render reads `render.yaml` and provisions a free web service.
-4. In the service's **Environment**, set `OPENAI_API_KEY` to your key and click
-   **Save** (this triggers a deploy). `OPENAI_MODEL` defaults to `gpt-4o-mini`.
+4. In the service's **Environment**, optionally set one provider key such as
+   `GROQ_API_KEY` to enable full AI reviews. Without a key, the local static
+   checks remain available.
 
 > The free plan sleeps after inactivity and cold-starts on the next visit.
 

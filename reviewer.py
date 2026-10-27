@@ -15,6 +15,8 @@ or forced with the ``LLM_PROVIDER`` environment variable.
 from __future__ import annotations
 
 import os
+import ast
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -173,6 +175,13 @@ def review_code(
     if not code or not code.strip():
         raise ReviewError("Please paste some code to review.")
 
+    # The app remains useful on first launch, before a provider key is added.
+    # These are deliberately narrow static checks, clearly labeled in the UI.
+    if not os.getenv("LLM_PROVIDER") and not any(
+        os.getenv(PROVIDERS[name].env_var, "").strip() for name in _DETECT_ORDER
+    ):
+        return local_review(code, language)
+
     provider, api_key = resolve_provider()
     client = _make_client(provider, api_key)
     model = model or _resolve_model(provider)
@@ -190,6 +199,10 @@ def review_code(
             break
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            # A failed request should only be retried without JSON mode when
+            # that feature appears to be the unsupported part of the request.
+            if not json_mode or not _json_mode_unsupported(exc):
+                break
             continue
 
     if response is None:
@@ -216,6 +229,79 @@ def review_code(
     )
 
 
+def local_review(code: str, language: str) -> ReviewResult:
+    """Run a small, explainable set of checks without executing user code."""
+    metrics = local_metrics(code)
+    bugs: list[dict[str, str]] = []
+    security: list[dict[str, str]] = []
+    performance: list[dict[str, str]] = []
+    practices: list[dict[str, str]] = []
+
+    def finding(target, severity, line, title, detail, fix):
+        target.append({"severity": severity, "impact": severity, "line": str(line),
+                       "title": title, "detail": detail, "fix": fix})
+
+    if language == "Python":
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as exc:
+            finding(bugs, "high", exc.lineno or 1, "Python syntax error",
+                    exc.msg, "Correct the syntax before running this code.")
+        else:
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for default in node.args.defaults + [d for d in node.args.kw_defaults if d]:
+                        if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                            finding(bugs, "medium", node.lineno, "Mutable default argument",
+                                    f"{node.name} shares this default object across calls.",
+                                    "Use None as the default and create the collection inside the function.")
+                    if any(isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                           and child.func.id == node.name for child in ast.walk(node)):
+                        finding(performance, "medium", node.lineno, "Recursive call",
+                                f"{node.name} calls itself; review the depth and repeated work.",
+                                "Check the base case and consider caching or an iterative approach.")
+                elif isinstance(node, ast.ExceptHandler) and node.type is None:
+                    finding(practices, "medium", node.lineno, "Bare except clause",
+                            "This also catches KeyboardInterrupt and SystemExit.",
+                            "Catch the specific exception types you expect.")
+                elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                        and node.func.id in {"eval", "exec"}:
+                    finding(security, "high", node.lineno, "Dynamic code execution",
+                            f"{node.func.id} can execute untrusted input.",
+                            "Use a parser or a restricted data format instead.")
+    else:
+        for number, line in enumerate(code.splitlines(), 1):
+            if language in {"JavaScript", "TypeScript"} and re.search(r"\beval\s*\(", line):
+                finding(security, "high", number, "Dynamic code execution",
+                        "eval can execute untrusted input.", "Use a parser instead of eval.")
+            if language == "SQL" and re.search(r"\bSELECT\s+\*\s+FROM\b", line, re.I):
+                finding(performance, "low", number, "SELECT * query",
+                        "Fetching every column may transfer unnecessary data.",
+                        "Select only the columns the caller needs.")
+
+    count = len(bugs) + len(security) + len(performance) + len(practices)
+    summary = (
+        f"Local static checks found {count} potential issue{'s' if count != 1 else ''}. "
+        "This is a limited scan; configure an AI provider for a full review, "
+        "suggested rewrite, and broader reasoning. No code was sent to a provider."
+    )
+    proxy = metrics["cyclomatic_proxy"]
+    rating = "high" if proxy > 15 else "moderate" if proxy > 7 else "low"
+    data = {
+        "overall_score": "—", "summary": summary, "bugs": bugs,
+        "security_issues": security, "performance_issues": performance,
+        "architecture_review": {"assessment": "Architecture requires a full AI review.",
+                                "strengths": [], "concerns": [], "suggestions": []},
+        "best_practices": practices,
+        "complexity": {"rating": rating, "estimated_time_complexity": "Not estimated",
+                       "estimated_space_complexity": "Not estimated",
+                       "cyclomatic_estimate": proxy,
+                       "notes": "Branch count is a static proxy, not a full complexity analysis."},
+        "refactored_code": "",
+    }
+    return ReviewResult(data=data, metrics=metrics, provider="Local static checks")
+
+
 def _response_text(response: Any) -> str:
     """Extract assistant text from a Chat Completions result."""
     try:
@@ -231,6 +317,11 @@ def _response_text(response: Any) -> str:
     return ""
 
 
+def _json_mode_unsupported(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(term in message for term in ("response_format", "json_object", "json mode"))
+
+
 # Keys that must always exist so the renderer never trips on missing fields.
 _ARRAY_KEYS = ("bugs", "security_issues", "performance_issues", "best_practices")
 _OBJECT_KEYS = ("architecture_review", "complexity")
@@ -238,13 +329,26 @@ _OBJECT_KEYS = ("architecture_review", "complexity")
 
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     """Ensure every expected key exists with a sane default."""
+    if not isinstance(data, dict):
+        raise ReviewError("The model returned a JSON value instead of a review object.")
     for key in _ARRAY_KEYS:
         if not isinstance(data.get(key), list):
             data[key] = []
+        else:
+            data[key] = [item for item in data[key] if isinstance(item, dict)]
     for key in _OBJECT_KEYS:
         if not isinstance(data.get(key), dict):
             data[key] = {}
-    data.setdefault("overall_score", "—")
-    data.setdefault("summary", "")
-    data.setdefault("refactored_code", "")
+    architecture = data["architecture_review"]
+    architecture["assessment"] = str(architecture.get("assessment") or "")
+    for key in ("strengths", "concerns", "suggestions"):
+        value = architecture.get(key)
+        architecture[key] = [str(item) for item in value] if isinstance(value, list) else []
+    for key in ("summary", "refactored_code"):
+        data[key] = str(data.get(key) or "")
+    try:
+        score = float(data.get("overall_score"))
+        data["overall_score"] = round(max(0.0, min(10.0, score)), 1)
+    except (TypeError, ValueError):
+        data["overall_score"] = "—"
     return data
