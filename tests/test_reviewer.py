@@ -1,6 +1,7 @@
 """Regression checks for provider model selection and review fallback."""
 
 import os
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -52,9 +53,34 @@ class ReviewerModelTests(unittest.TestCase):
         create = Mock()
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         reviewer._chat(client, "openai/gpt-oss-120b", "system", "user", True, "groq")
-        self.assertEqual(create.call_args.kwargs["reasoning_format"], "hidden")
+        self.assertEqual(create.call_args.kwargs["extra_body"], {"reasoning_format": "hidden"})
         self.assertEqual(create.call_args.kwargs["max_completion_tokens"], 4096)
         self.assertEqual(create.call_args.kwargs["response_format"], {"type": "json_object"})
+
+    def test_groq_extension_is_serialized_by_openai_sdk(self):
+        import httpx
+        from openai import OpenAI
+
+        captured = {}
+
+        def respond(request):
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json={
+                "id": "test", "object": "chat.completion", "created": 0,
+                "model": "openai/gpt-oss-120b", "choices": [{
+                    "index": 0, "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "{}"},
+                }],
+            })
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+            client = OpenAI(api_key="test", base_url="https://api.groq.com/openai/v1",
+                            http_client=http_client)
+            reviewer._chat(client, "openai/gpt-oss-120b", "system", "user", True, "groq")
+
+        self.assertEqual(captured["reasoning_format"], "hidden")
+        self.assertEqual(captured["max_completion_tokens"], 4096)
+        self.assertEqual(captured["response_format"], {"type": "json_object"})
 
 
 if __name__ == "__main__":

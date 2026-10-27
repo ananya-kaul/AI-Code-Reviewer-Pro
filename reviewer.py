@@ -172,7 +172,9 @@ def _chat(client, model: str, system: str, user: str, json_mode: bool,
         kwargs["response_format"] = {"type": "json_object"}
     if provider_key == "groq" and model.startswith("openai/gpt-oss-"):
         kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
-        kwargs["reasoning_format"] = "hidden"
+        # This is a Groq-specific request field. The OpenAI SDK accepts
+        # provider extensions in extra_body, not as create() keyword arguments.
+        kwargs["extra_body"] = {"reasoning_format": "hidden"}
     return client.chat.completions.create(**kwargs)
 
 
