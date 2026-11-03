@@ -25,11 +25,13 @@ import gradio as gr
 
 from reviewer import ReviewError, review_code
 from utils import (
+    FILE_LANGUAGE,
     LANGUAGES,
     REVIEW_MODE_NAMES,
     badge,
     code_language_token,
     detect_language,
+    language_from_filename,
     render_markdown_report,
 )
 
@@ -37,6 +39,8 @@ APP_DIR = Path(__file__).parent
 THEME_CSS = (APP_DIR / "theme.css").read_text(encoding="utf-8")
 REPORTS_DIR = APP_DIR / "assets" / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+MAX_CODE_CHARS = 30_000
+MAX_FILE_BYTES = 120_000
 
 PLACEHOLDER_CODE = """def fibonacci(n):
     # Naive recursive Fibonacci — try reviewing this!
@@ -120,7 +124,8 @@ _IDLE = (
 )
 
 
-def score_card(value, empty_label: str = "No review yet") -> str:
+def score_card(value, empty_label: str = "No review yet",
+               findings_count: int | None = None, priority_count: int = 0) -> str:
     """Render a compact score card that works beside the summary."""
     try:
         v = float(value)
@@ -143,11 +148,22 @@ def score_card(value, empty_label: str = "No review yet") -> str:
         else:
             verdict, vclass = "Poor", "poor"
 
+    findings_html = ""
+    if findings_count is not None:
+        label = "finding" if findings_count == 1 else "findings"
+        priority = (f"<span class='metric-priority'>{priority_count} high priority</span>"
+                    if priority_count else "")
+        findings_html = (
+            f"<div class='metric-findings'><strong>{findings_count}</strong> {label}"
+            f"{priority}</div>"
+        )
+
     return (
         "<div class='score-card'>"
         "<div class='metric-label'>OVERALL SCORE</div>"
         f"<div class='metric-value'>{num}<span>/10</span></div>"
         f"<div class='metric-verdict metric-verdict--{vclass}'>{verdict}</div>"
+        f"{findings_html}"
         "</div>"
     )
 
@@ -271,6 +287,13 @@ def _idle_outputs():
 def _result_outputs(data: dict, metrics: dict, provider: str, model: str,
                     language: str, mode: str, report_md: str, report_path: str):
     refactored = data.get("refactored_code", "")
+    findings = [item for key in ("bugs", "security_issues", "performance_issues",
+                              "best_practices")
+                for item in data.get(key, [])]
+    priority_count = sum(
+        str(item.get("severity") or item.get("impact") or "").lower()
+        in {"critical", "high", "very high"} for item in findings
+    )
     engine = ""
     if provider:
         model_tag = f" · <code>{html.escape(model)}</code>" if model else ""
@@ -279,7 +302,8 @@ def _result_outputs(data: dict, metrics: dict, provider: str, model: str,
             f"{model_tag}</div>\n\n"
         )
     return (
-        score_card(data.get("overall_score"), "AI score unavailable"),
+        score_card(data.get("overall_score"), "AI score unavailable",
+                   len(findings), priority_count),
         f"{engine}### Review summary\n\n{data.get('summary', '') or '_No summary provided._'}",
         _findings_markdown(data.get("bugs", []), "severity"),
         _findings_markdown(data.get("security_issues", []), "severity"),
@@ -320,7 +344,7 @@ def run_review(
         )
         return
 
-    if len(code) > 30_000:
+    if len(code) > MAX_CODE_CHARS:
         yield (*_error_outputs("Code is too long", "Please keep the input under 30,000 characters."),
                history, render_history(history), gr.update(), gr.update())
         return
@@ -399,12 +423,63 @@ def restore_review(review_id: str, history: list[dict] | None):
 
 
 def clear_workspace():
-    return (gr.update(value=""), gr.update(value=""), *_idle_outputs())
+    return (gr.update(value=""), gr.update(value=""), gr.update(value=""),
+            gr.update(value=True),
+            gr.update(value=editor_stats("")), *_idle_outputs())
 
 
 def load_sample():
     return (gr.update(value=PLACEHOLDER_CODE, language="python"),
-            gr.update(value="Python"), *_idle_outputs())
+            gr.update(value="Python"), gr.update(value=True),
+            gr.update(value=""), *_idle_outputs())
+
+
+def editor_stats(code: str) -> str:
+    """Keep the input limit visible before a review is requested."""
+    size = len(code or "")
+    lines = len(code.splitlines()) if code else 0
+    state = "code-stats--over" if size > MAX_CODE_CHARS else ""
+    suffix = " · Trim the snippet before reviewing" if size > MAX_CODE_CHARS else ""
+    return (f"<span class='code-stats {state}'>{size:,} / {MAX_CODE_CHARS:,} characters"
+            f" · {lines:,} lines{suffix}</span>")
+
+
+def load_code_file(filepath: str | None):
+    """Import one UTF-8 source file into the editor without reviewing it yet."""
+    def failed(message: str):
+        return (gr.update(), gr.update(), gr.update(), gr.update(value=message),
+                *([gr.update()] * 11))
+
+    if not filepath:
+        return failed("")
+    path = Path(filepath)
+    try:
+        if path.stat().st_size > MAX_FILE_BYTES:
+            return failed("⚠️ File is too large. Import a snippet under 30,000 characters.")
+        content = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        return failed("⚠️ Could not read this file. Choose a UTF-8 source file.")
+    if not content.strip():
+        return failed("⚠️ This file is empty.")
+    if len(content) > MAX_CODE_CHARS:
+        return failed("⚠️ File is too large. Import a snippet under 30,000 characters.")
+    language = language_from_filename(path.name)
+    from_extension = language is not None
+    if language is None:
+        detected, confidence = detect_language(content)
+        language = detected if confidence >= .25 else "Python"
+    status = f"Loaded **{html.escape(path.name)}**"
+    if from_extension:
+        status += f" · Language set to {language} from filename"
+    return (gr.update(value=content, language=code_language_token(language)),
+            gr.update(value=language),
+            gr.update(value=False) if from_extension else gr.update(),
+            gr.update(value=status), *_idle_outputs())
+
+
+def clear_history():
+    """Discard the current browser session's saved review list."""
+    return [], render_history([]), gr.update(choices=[], value=None), gr.update(interactive=False)
 
 
 def on_language_change(language: str):
@@ -414,24 +489,26 @@ def on_language_change(language: str):
 
 def autodetect_on_edit(code: str, enabled: bool, current_lang: str):
     """Live language detection as the user edits, without disrupting typing."""
+    stats = gr.update(value=editor_stats(code))
     if not enabled or not code or not code.strip():
-        return gr.update(), gr.update(), gr.update(value="")
+        return gr.update(), gr.update(), gr.update(value=""), stats
 
     lang, confidence = detect_language(code)
     pct = int(confidence * 100)
     if confidence < 0.25:
         status = "🪄 <span class='detect-muted'>Auto-detect: not enough signal yet…</span>"
-        return gr.update(), gr.update(), gr.update(value=status)
+        return gr.update(), gr.update(), gr.update(value=status), stats
 
     status = f"🪄 Detected <strong>{lang}</strong> · <span class='detect-pct'>{pct}%</span>"
     if lang == current_lang:
-        return gr.update(), gr.update(), gr.update(value=status)
+        return gr.update(), gr.update(), gr.update(value=status), stats
 
     # Switch language + editor highlighting; value unchanged so no edit loop.
     return (
         gr.update(value=lang),
         gr.update(language=code_language_token(lang)),
         gr.update(value=status),
+        stats,
     )
 
 
@@ -482,8 +559,16 @@ def build_app() -> gr.Blocks:
                                     filterable=False, elem_classes="field-select",
                                     min_width=150,
                                 )
+                            with gr.Row(elem_classes="editor-tools"):
+                                upload_btn = gr.UploadButton(
+                                    "Upload code file", type="filepath", file_count="single",
+                                    file_types=[*sorted(FILE_LANGUAGE), ".txt"],
+                                    elem_classes="upload-btn", size="sm",
+                                )
+                                code_stats = gr.Markdown(editor_stats(""), elem_classes="code-stats-wrap")
+                            upload_status = gr.Markdown("", elem_classes="upload-status")
                             code = gr.Code(
-                                value="", language="python", lines=16,
+                                value="", language="python", lines=10,
                                 show_label=False, container=False,
                                 elem_classes="code-input",
                             )
@@ -520,40 +605,41 @@ def build_app() -> gr.Blocks:
                                 "### Summary\n\nRun a review to see the key takeaways.",
                                 elem_classes="surface summary-surface",
                             )
-                        with gr.Column(elem_classes="surface results-surface"):
-                            gr.HTML("<h3 class='result-group-title'>Findings</h3>")
-                            gr.HTML("<h4 class='result-section-title'>Bugs</h4>")
-                            bugs_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                            gr.HTML("<h4 class='result-section-title'>Security</h4>")
-                            security_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                            gr.HTML("<h4 class='result-section-title'>Performance</h4>")
-                            performance_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                        with gr.Column(elem_classes="surface results-surface"):
-                            gr.HTML("<h3 class='result-group-title'>Code quality</h3>")
-                            gr.HTML("<h4 class='result-section-title'>Architecture</h4>")
-                            architecture_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                            gr.HTML("<h4 class='result-section-title'>Standards</h4>")
-                            best_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                            gr.HTML("<h4 class='result-section-title'>Complexity</h4>")
-                            complexity_out = gr.Markdown(_IDLE, elem_classes="result-content")
-                        with gr.Column(elem_classes="surface results-surface"):
-                            gr.HTML("<h3 class='result-group-title'>Refactored code</h3>")
-                            gr.Markdown("AI reviews can include a suggested rewrite.", elem_classes="tab-helper")
-                            refactored_out = gr.Code(
-                                label="Suggested code", language="python",
-                                visible=False, elem_classes="refactor-code",
-                            )
-                        with gr.Column(elem_classes="surface results-surface"):
-                            gr.HTML("<h3 class='result-group-title'>Full report</h3>")
-                            download_btn = gr.DownloadButton(
-                                "Download Markdown report",
-                                visible=False, elem_classes="download-btn",
-                            )
-                            with gr.Accordion("Read full report", open=False, elem_classes="report-accordion"):
-                                report_out = gr.Markdown(
-                                    "_Your complete report will appear here._",
-                                    elem_classes="report-content",
-                                )
+                        with gr.Group(elem_classes="result-sections"):
+                            with gr.Accordion("Findings", open=True, elem_classes="result-accordion"):
+                                with gr.Column(elem_classes="surface results-surface"):
+                                    gr.HTML("<h4 class='result-section-title'>Bugs</h4>")
+                                    bugs_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                                    gr.HTML("<h4 class='result-section-title'>Security</h4>")
+                                    security_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                                    gr.HTML("<h4 class='result-section-title'>Performance</h4>")
+                                    performance_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            with gr.Accordion("Code quality", open=False, elem_classes="result-accordion"):
+                                with gr.Column(elem_classes="surface results-surface"):
+                                    gr.HTML("<h4 class='result-section-title'>Architecture</h4>")
+                                    architecture_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                                    gr.HTML("<h4 class='result-section-title'>Standards</h4>")
+                                    best_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                                    gr.HTML("<h4 class='result-section-title'>Complexity</h4>")
+                                    complexity_out = gr.Markdown(_IDLE, elem_classes="result-content")
+                            with gr.Accordion("Report & rewrite", open=False, elem_classes="result-accordion"):
+                                with gr.Column(elem_classes="surface results-surface"):
+                                    gr.HTML("<h3 class='result-group-title'>Suggested rewrite</h3>")
+                                    gr.Markdown("AI reviews can include an improved version of your code.", elem_classes="tab-helper")
+                                    refactored_out = gr.Code(
+                                        label="Suggested code", language="python",
+                                        visible=False, elem_classes="refactor-code",
+                                    )
+                                    gr.HTML("<h4 class='result-section-title'>Full report</h4>")
+                                    download_btn = gr.DownloadButton(
+                                        "Download Markdown report",
+                                        visible=False, elem_classes="download-btn",
+                                    )
+                                    with gr.Accordion("Read full report", open=False, elem_classes="report-accordion"):
+                                        report_out = gr.Markdown(
+                                            "_Your complete report will appear here._",
+                                            elem_classes="report-content",
+                                        )
 
             with gr.Tab("History", id="history"):
                 gr.HTML(
@@ -569,6 +655,9 @@ def build_app() -> gr.Blocks:
                     reopen_btn = gr.Button(
                         "Open review", variant="primary",
                         elem_classes="reopen-btn", interactive=False,
+                    )
+                    clear_history_btn = gr.Button(
+                        "Clear history", elem_classes="secondary-btn history-clear-btn",
                     )
                 history_view = gr.HTML(render_history([]), elem_classes="history-view")
 
@@ -592,17 +681,18 @@ def build_app() -> gr.Blocks:
         code.change(
             fn=autodetect_on_edit,
             inputs=[code, autodetect, language],
-            outputs=[language, code, detect_status],
+            outputs=[language, code, detect_status, code_stats],
             show_progress="hidden",
         )
         language.change(fn=on_language_change, inputs=language, outputs=code)
         clear_btn.click(
             fn=clear_workspace, inputs=None,
-            outputs=[code, detect_status, *outputs[:11]], queue=False,
+            outputs=[code, detect_status, upload_status, autodetect, code_stats,
+                     *outputs[:11]], queue=False,
         )
         sample_btn.click(
             fn=load_sample, inputs=None,
-            outputs=[code, language, *outputs[:11]], queue=False,
+            outputs=[code, language, autodetect, upload_status, *outputs[:11]], queue=False,
         ).then(
             fn=run_review,
             inputs=[code, language, mode, autodetect, history_state],
@@ -612,6 +702,15 @@ def build_app() -> gr.Blocks:
         reopen_btn.click(
             fn=restore_review, inputs=[history_picker, history_state],
             outputs=[*outputs[:11], code, language, mode, main_tabs], queue=False,
+        )
+        upload_btn.upload(
+            fn=load_code_file, inputs=upload_btn,
+            outputs=[code, language, autodetect, upload_status, *outputs[:11]],
+            queue=False,
+        )
+        clear_history_btn.click(
+            fn=clear_history, inputs=None,
+            outputs=[history_state, history_view, history_picker, reopen_btn], queue=False,
         )
 
     return demo

@@ -26,7 +26,12 @@ Check the provider's current pricing and rate limits before configuring a key.
 ## ✨ Features
 
 - **Light-only, responsive UI** built with Gradio Blocks and custom CSS.
-- **Session history:** reopen any of the last 20 reviews, including its code and report.
+- **Import a source file:** load a UTF-8 code file into the editor. Its extension
+  selects the language when supported; click **Review code** when ready.
+- **Live input count:** see the 30,000-character limit before submitting a review.
+- **Compact results:** expand findings, code quality, and report sections as needed.
+- **Session history:** reopen any of the last 20 reviews, including its code and
+  report, or clear the current session's review list.
 - **Safer review flow:** empty and oversized inputs are caught before an API call, and every download gets a unique filename.
 - **Sample snippet** to explore the app without supplying your own code.
 - **Works without an API key:** local static checks flag selected Python syntax,
@@ -139,7 +144,7 @@ AI-Code-Reviewer-Pro/
 2. `reviewer.py` calls the active provider's OpenAI-compatible API when a key is
    available, or runs limited static checks locally. Provider responses are
    normalized so every expected field is present. Static metrics are computed locally.
-3. `app.py` renders the structured result into a tabbed, light UI and a
+3. `app.py` renders the structured result into a light workspace and a
    downloadable Markdown report.
 
 Review history is kept in the current browser session. Generated reports are
