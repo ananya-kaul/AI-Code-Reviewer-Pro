@@ -302,9 +302,13 @@ def local_review(code: str, language: str) -> ReviewResult:
                         "Select only the columns the caller needs.")
 
     count = len(bugs) + len(security) + len(performance) + len(practices)
-    summary = (
+    result_sentence = (
         f"Local static checks found {count} potential issue{'s' if count != 1 else ''}. "
-        "This is a limited scan; configure an AI provider for a full review, "
+        if count else "No issues were found by the limited static checks. "
+    )
+    summary = (
+        result_sentence
+        + "This is a limited scan; configure an AI provider for a full review, "
         "suggested rewrite, and broader reasoning. No code was sent to a provider."
     )
     proxy = metrics["cyclomatic_proxy"]

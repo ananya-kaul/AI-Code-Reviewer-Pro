@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,21 @@ REVIEW_MODE_NAMES: list[str] = [
     "Testing",
 ]
 
+FILE_LANGUAGE: dict[str, str] = {
+    ".swift": "Swift", ".dart": "Dart", ".py": "Python",
+    ".js": "JavaScript", ".jsx": "JavaScript", ".mjs": "JavaScript",
+    ".ts": "TypeScript", ".tsx": "TypeScript",
+    ".java": "Java", ".kt": "Kotlin", ".go": "Go", ".rs": "Rust",
+    ".cs": "C#", ".cpp": "C++", ".cc": "C++", ".cxx": "C++",
+    ".php": "PHP", ".rb": "Ruby", ".sql": "SQL",
+    ".html": "HTML/CSS", ".htm": "HTML/CSS", ".css": "HTML/CSS",
+}
+
+
+def language_from_filename(filename: str) -> str | None:
+    """Use a file extension when it identifies a supported language."""
+    return FILE_LANGUAGE.get(Path(filename).suffix.lower())
+
 SEVERITY_BADGE: dict[str, str] = {
     "critical": "🔴 Critical",
     "high": "🟠 High",
@@ -107,7 +123,7 @@ _DETECTION_RULES: list[tuple[str, int, "re.Pattern[str]"]] = [
     ("Python", 3, _r(r'\bprint\s*\(|__name__\s*==\s*["\']__main__')),
     # TypeScript (check before JS; needs type annotations)
     ("TypeScript", 6, _r(r"\binterface\s+\w+\s*\{|\btype\s+\w+\s*=")),
-    ("TypeScript", 5, _r(r":\s*(string|number|boolean|void|any|unknown)\b")),
+    ("TypeScript", 10, _r(r":\s*(string|number|boolean|void|any|unknown)\b")),
     ("TypeScript", 4, _r(r"\b(enum|implements)\b|\bas\s+\w+")),
     # JavaScript
     ("JavaScript", 4, _r(r"\bconst\s+\w+\s*=|\blet\s+\w+\s*=|\bfunction\s*\*?\s*\w*\s*\(")),
